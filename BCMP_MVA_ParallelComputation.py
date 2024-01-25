@@ -32,21 +32,19 @@ class BCMP_MVA_Computation:
         self.max_distance_y = 500
         self.maxval = 0
         #Transition Probability generate
-        p = [[]]
         lmd_list = [[]]
-        Pi_list = [[[]]]
+        alpha = [[]]
         if rank == 0:
             if type(tp) is list:
-                p = tp
+                self.p = tp
             else:
-                p = self.getTransitionProbability()  
+                self.p = self.getTransitionProbability()  
             lmd_list = np.zeros((self.R, (np.max(self.K)+1)**self.R), dtype= float)
-            Pi_list = np.zeros((self.N, np.max(self.m), (np.max(self.K)+1)**self.R), dtype= float)
-        self.p = comm.bcast(p, root=0)
+            self.Pi_list = np.zeros((self.N, np.max(self.m), (np.max(self.K)+1)**self.R), dtype= float)
+            alpha = self.getArrival(self.p)
+            print('rank = {0}'.format(self.rank))
         self.lmd_list = comm.bcast(lmd_list, root=0)
-        self.Pi_list = comm.bcast(Pi_list, root=0)
-        self.alpha = self.getArrival(self.p)
-        print('rank = {0}'.format(self.rank))
+        self.alpha = comm.bcast(alpha, root=0) #到着率を共有
         self.km = (np.max(self.K)+1)**self.R
         self.process_text = './process/process_N'+str(self.N)+'_R'+str(self.R)+'_K'+str(self.K_total)+'_U'+str(self.U)+'_Core'+str(self.size)+'.txt'
         self.cpu_list = []
@@ -61,6 +59,7 @@ class BCMP_MVA_Computation:
         l_value_list =[] #ひとつ前の状態に対するLの値
         state_dict = {} #ひとつ前の状態に対する{l_value_list, state_list}の辞書
         last_L = []
+        #remainder_list = []
         for k_index in range(1, self.K_total+1):
             if self.rank == 0:
                 with open(self.process_text, 'a') as f:
@@ -78,6 +77,8 @@ class BCMP_MVA_Computation:
             if self.rank == 0: #rank0だけが組み合わせを作成
                 k_combi_list = self.getCombiList4(self.K, k_index)
                 self.combi_len.append(len(k_combi_list))
+                k_combi_list_div = k_combi_list_div_all[0]
+                quotient, remainder = divmod(len(k_combi_list), self.size) #商とあまり
                 with open(self.process_text, 'a') as f:
                     print('Combination = {0}'.format(len(k_combi_list)), file=f)
                     print(k_combi_list, file=f)
@@ -88,13 +89,15 @@ class BCMP_MVA_Computation:
                     size_index += 1
                 for rank in range(1, self.size):
                     self.comm.send(k_combi_list_div_all[rank], dest=rank, tag=10)
-                k_combi_list_div = k_combi_list_div_all[0]
             else :
-                k_combi_list_div = self.comm.recv(source=0, tag=10)  
+                k_combi_list_div = self.comm.recv(source=0, tag=10)
+                quotient, remainder = None, None
+            quotient = self.comm.bcast(quotient, root=0)
+            remainder = self.comm.bcast(remainder, root=0)
             
             
             #並列ループ内での受け渡しに利用
-            L = np.zeros((self.N, self.R, len(k_combi_list_div)), dtype= float) #平均系内人数 
+            L = np.zeros((self.N, self.R, len(k_combi_list_div)), dtype= float) #平均系内人数
             T = np.zeros((self.N, self.R, len(k_combi_list_div)), dtype= float) #平均系内時間
             lmd = np.zeros((self.R, len(k_combi_list_div)), dtype= float) #各クラスのスループット
             Pi = np.zeros((self.N, np.max(self.m), len(k_combi_list_div)*self.R), dtype= float)
@@ -111,28 +114,68 @@ class BCMP_MVA_Computation:
                             r1[r] = 1 #対象クラスのみ1
                             k1v = val - r1 #ベクトルの引き算
 
-                            if np.min(k1v) < 0: #k-r1で負になる要素がある場合
-                                continue
+                            #マスタープロセス(rank0)から再帰計算に使う値を取得
+                            if self.m[n] > 1:
+                                pi_list = [[] for i in range(self.size)] #再帰計算で用いる値を格納
+                                if self.rank == 0:
+                                    rank_list = [] #計算しているrankを取得
+                                    end = remainder
+                                    if quotient > idx:
+                                        end = self.size #全プロセスで計算を行う場合
+                                    #計算を行うrankを取得、rank_listに格納
+                                    for rank in range(1, end):
+                                        rank_number = self.comm.recv(source=rank, tag=15)
+                                        rank_list.append(rank_number)
+                                    if len(rank_list) > 0: #pi_listに値を登録
+                                        for rank in rank_list:
+                                            if rank > 0:
+                                                rank_idx = self.comm.recv(source=rank, tag=16)
+                                                for i in range(len(rank_idx[0])):
+                                                    pi_list[rank].append(self.Pi_list[n][int(rank_idx[0][i])][int(rank_idx[1][i])]) #self.Pi_list[n][j-1][kr_state]
+                                        for rank in range(1, end):
+                                            self.comm.send(pi_list, dest=rank, tag=19)
+                                else:
+                                    #対象の値のindexをrank0に送信
+                                    if np.min(k1v) >= 0 and np.sum(k1v) > 0:
+                                        self.comm.send(self.rank, dest=0, tag=15) #計算を行った場合、rank番号を送信
+                                        pi_idx = [[] for i in range(2)] #state_numberとj-1を格納
+                                        for j in range(1, self.m[n]):
+                                            for _r in range(self.R):
+                                                kr = np.zeros(self.R)
+                                                kr[_r] = 1
+                                                kr_state = int(self.getState_kr(k1v, kr)) #k1vはvalの一つ前の状態
+                                                if kr_state < 0:
+                                                    continue
+                                                pi_idx[0].append(j-1)
+                                                pi_idx[1].append(kr_state)
+                                        self.comm.send(pi_idx, dest=0, tag=16)
+                                    else:
+                                        self.comm.send(0, dest=0, tag=15) #計算しない場合、0を送信
+                                #rank0から値を受け取る
+                                if self.rank > 0:
+                                    pi_list =  self.comm.recv(source=0, tag=19)
 
-                            kr_state_number = int(self.getState(k1v)) #k-1r
-                            sum_l = 0
-                            for i in range(self.R):#k-1rを状態に変換
-                                if np.min(k1v) >= 0: #全ての状態が0以上のとき
-                                    l_value = state_dict.get((kr_state_number,n,i))#state_listで検索して、l_valueを返す
+                            if np.min(k1v) >= 0:
+                                kr_state_number = int(self.getState(k1v)) #k-1rの格納位置を取得
+                                #1つ前のLとその和を取得
+                                sum_l = 0
+                                for i in range(self.R): #k-1rを状態に変換
+                                    l_value = state_dict.get((kr_state_number,n,i)) #state_listで検索して、l_valueを返す
                                     if l_value is not None:
                                         sum_l += l_value 
-                                    
-                            if self.m[n] == 1:
-                                T[n, r, idx] = 1 / self.mu[r,n] * (1 + sum_l)
-                            if self.m[n] > 1:
-                                sum_pi = 0
-                                for _j in range(m[n]-2+1):
-                                    pi = self.getPi(n, _j, k1v, kr_state_number, Pi, idx, r)
-                                    Pi[n][_j][idx*self.R + r] = pi
-                                    if self.rank == 0:
-                                        self.Pi_list[n][_j][kr_state_number] = pi
-                                    sum_pi += (self.m[n] - _j - 1) * pi
-                                T[n, r, idx] = 1 / (self.m[n] * self.mu[r,n]) * (1 + sum_l + sum_pi)
+
+                                if self.m[n] == 1:
+                                    T[n, r, idx] = 1 / self.mu[r,n] * (1 + sum_l)
+                                if self.m[n] > 1:
+                                    sum_pi = 0
+                                    for _j in range(m[n]-2+1):
+                                        #k1vは組み合わせ、kr_state_numberはindex
+                                        pi = self.getPi(n, _j, k1v, kr_state_number, Pi, idx, r, pi_list)
+                                        Pi[n][_j][idx*self.R + r] = pi
+                                        if self.rank == 0: #rank0以外はあとで追加する
+                                            self.Pi_list[n][_j][kr_state_number] = pi
+                                        sum_pi += (self.m[n] - _j - 1) * pi
+                                    T[n, r, idx] = 1 / (self.m[n] * self.mu[r,n]) * (1 + sum_l + sum_pi)
                                 
                 #λの更新
                 for r in range(self.R):
@@ -143,7 +186,7 @@ class BCMP_MVA_Computation:
                         continue
                     if sum > 0:
                         lmd[r,idx] = val[r] / sum
-                        if self.rank == 0:
+                        if self.rank == 0: #rank0以外はあとで追加する
                             self.lmd_list[r][k_state_number] = lmd[r][idx]
 
                 #Lの更新
@@ -198,13 +241,12 @@ class BCMP_MVA_Computation:
                 self.comm.send(Pi, dest=0, tag=13)
             self.comm.barrier() #プロセス同期
             
-            if self.rank == 0:
+            if self.rank == 0: #集約完了
                 with open(self.process_text, 'a') as f:
-                    print('k = {0}, elapse = {1}'.format(k_index, time.time() - self.start), file=f)
+                    print('k = {0}, aggregation, elapse = {1}'.format(k_index, time.time() - self.start), file=f)
             
             #ここでブロードキャストする
             self.lmd_list = self.comm.bcast(self.lmd_list, root=0)
-            self.Pi_list = self.comm.bcast(self.Pi_list, root=0)
             state_list = self.comm.bcast(state_list, root=0)
             l_value_list = self.comm.bcast(l_value_list, root=0)
             if k_index == self.K_total:
@@ -214,9 +256,9 @@ class BCMP_MVA_Computation:
             # 辞書に直す
             state_dict = dict(zip(zip(state_list, n_list, r_list),l_value_list))
 
-            if self.rank == 0:
+            if self.rank == 0: #ブロードキャスト完了
                 with open(self.process_text, 'a') as f:
-                    print('k = {0}, elapse = {1}'.format(k_index, time.time() - self.start), file=f)
+                    print('k = {0}, broadcast, elapse = {1}'.format(k_index, time.time() - self.start), file=f)
         
         if self.rank == 0:
             #各プロセスのmem_listの合計
@@ -236,9 +278,7 @@ class BCMP_MVA_Computation:
         return last_L
 
 
-    def getPi(self, n, j, k, k_state, Pi, idx, r):
-        if min(k) < 0:
-            return 0
+    def getPi(self, n, j, k, k_state, Pi, idx, r, pi_list):
         if j == 0 and sum(k) == 0: #Initializationより
             return 1
         if j > 0 and sum(k) == 0: #Initializationより
@@ -248,10 +288,11 @@ class BCMP_MVA_Computation:
             for _r in range(self.R):
                 sum_emlam += self.alpha[_r][n] / self.mu[_r][n] * self.lmd_list[_r][k_state]
             sum_pi = 0
+            i = 0
             for _j in range(1, self.m[n]):
-                pi8_44 = self.getPi8_44(n, _j, k, k_state)
+                pi8_44, i = self.getPi8_44(n, _j, k, k_state, pi_list, i) #(8.44)
                 Pi[n][_j][idx*self.R + r] = pi8_44
-                if self.rank == 0:
+                if self.rank == 0: #rank0以外はあとで追加する
                     self.Pi_list[n][_j][k_state] = pi8_44
                 sum_pi += (self.m[n] - _j) * pi8_44
             pi = 1 - 1 / self.m[n] * (sum_emlam + sum_pi)
@@ -259,10 +300,9 @@ class BCMP_MVA_Computation:
                 pi = 0
             return pi
         if j > 0 and sum(k) > 0:
-            pi8_44 = self.getPi8_44(n, j, k, k_state)
-            return pi8_44 #Pi[n][j][idx*self.R + r]
+            return Pi[n][j][idx*self.R + r]
 
-    def getPi8_44(self, n, j, k, k_state):
+    def getPi8_44(self, n, j, k, k_state, pi_list, i):
         sum_val = 0
         for _r in range(self.R):
             kr = np.zeros(self.R)
@@ -271,8 +311,12 @@ class BCMP_MVA_Computation:
             if kr_state < 0:
                 continue
             else:
-                sum_val += self.alpha[_r][n] / self.mu[_r][n] * self.lmd_list[_r][k_state] * self.Pi_list[n][j-1][kr_state]
-        return 1 / j * (sum_val) #Pi[n][j][idx*self.R + r]
+                if self.rank == 0:
+                    sum_val += self.alpha[_r][n] / self.mu[_r][n] * self.lmd_list[_r][k_state] * self.Pi_list[n][j-1][kr_state]
+                else:   
+                    sum_val += self.alpha[_r][n] / self.mu[_r][n] * self.lmd_list[_r][k_state] * pi_list[self.rank][i] #pi_list[self.rank][i] #pi_rankの添え字を変える
+                    i += 1
+        return 1 / j * (sum_val), i #Pi[n][j][idx*self.R + r]
 
     def getState(self, k):#k=[k1,k2,...]を引数としたときにn進数を返す(R = len(K))
         k_state = 0
