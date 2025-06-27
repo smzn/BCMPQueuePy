@@ -7,12 +7,12 @@ from numpy.random import randint, rand
 import random
 import os
 from mpi4py import MPI
-
+import shutil
 
 class BCMP_GA_Class:
 
-    def __init__(self, N, R, npop, ngen, U, crosspb, mutpb, rank, size, comm, P, sim_time, tp, algorithm,mu, K, dirname):
-        self.dirname = dirname
+    def __init__(self, N, R, npop, ngen, U, crosspb, mutpb, rank, size, comm, P, sim_time, tp, algorithm,mu, K, output_dir):
+        self.output_dir = output_dir
         self.N = N
         self.R = R
         self.K = K
@@ -175,13 +175,13 @@ class BCMP_GA_Class:
                     window[i][j] = self.window[i][j]
             #simulate
             import BCMP_Simulation as mdl
-            bcmp_simulation = mdl.BCMP_Simulation(self.N, self.R, self.K, self.U, self.mu, individual, self.p, self.sim_time, self.switch, self.event, self.eventclass, self.eventqueue, self.eventtime, self.queue, self.queueclass, self.classorder, window, service)
+            bcmp_simulation = mdl.BCMP_Simulation(self.N, self.R, self.K, self.U, self.mu, individual, self.p, self.sim_time, self.switch, self.output_dir, self.event, self.eventclass, self.eventqueue, self.eventtime, self.queue, self.queueclass, self.classorder, window, service)
             simulation = bcmp_simulation.getSimulation()
             L_class = np.array(simulation) #list to numpy
-        np.savetxt(f'{self.dirname}/ga_L_std.csv', L_class, delimiter=',')
-        np.savetxt(f'{self.dirname}/ga_Node_std.csv', individual, delimiter=',') 
-        np.savetxt(f'{self.dirname}/ga_P_std.csv', self.p, delimiter=',')
-        np.savetxt(f'{self.dirname}/ga_Object_std.csv', np.array(self.bestfit_seriese), delimiter=',')
+        np.savetxt(f'{self.output_dir}/ga_L_std.csv', L_class, delimiter=',')
+        np.savetxt(f'{self.output_dir}/ga_Node_std.csv', individual, delimiter=',') 
+        np.savetxt(f'{self.output_dir}/ga_P_std.csv', self.p, delimiter=',')
+        np.savetxt(f'{self.output_dir}/ga_Object_std.csv', np.array(self.bestfit_seriese), delimiter=',')
         print('Final Result')
         print('L = {0}'.format(L_class))
         print('sum = {0}'.format(np.sum(L_class)))
@@ -203,7 +203,7 @@ class BCMP_GA_Class:
                     window[i][j] = self.window[i][j]
             #simulate
             import BCMP_Simulation as mdl
-            bcmp_simulation = mdl.BCMP_Simulation(self.N, self.R, self.K, self.U, self.mu, individual, self.p, self.sim_time, self.switch, self.event, self.eventclass, self.eventqueue, self.eventtime, self.queue, self.queueclass, self.classorder, window, service)
+            bcmp_simulation = mdl.BCMP_Simulation(self.N, self.R, self.K, self.U, self.mu, individual, self.p, self.sim_time, self.switch, self.output_dir, self.event, self.eventclass, self.eventqueue, self.eventtime, self.queue, self.queueclass, self.classorder, window, service)
             simulation = bcmp_simulation.getSimulation()
             L_class = np.array(simulation) #list to numpy
         L = []
@@ -280,7 +280,7 @@ class BCMP_GA_Class:
         plt.ylabel('Value of GA')
         plt.grid()
         plt.legend()
-        fig.savefig(f'{self.dirname}/ga_transition_std.png')
+        fig.savefig(f'{self.output_dir}/ga_transition_std.png')
         
     def getRandInt1(self): # Reflect the ease of returning 1 with the minimum number of used nodes / 1を返すときに最低利用Numbe
         return randint(1, self.U+1)
@@ -318,10 +318,10 @@ if __name__ == '__main__':
     npop = int(sys.argv[7]) #Population size
     ngen = int(sys.argv[8]) #Generation size
 
-    output_dir = f'N{N}_R{R}_K{K_total}_U{U}_X{max_x}_Y{max_y}'
-    p = np.loadtxt(f'{output_dir}/transition_probability.csv', delimiter=',').tolist()#transition probability matrix
-    mu = np.loadtxt(f'{output_dir}/mu_matrix.csv', delimiter=',')
-    K = np.loadtxt(f'{output_dir}/K_values.csv', delimiter=',').astype(int).tolist()
+    dirname = f'N{N}_R{R}_K{K_total}_U{U}_X{max_x}_Y{max_y}'
+    p = np.loadtxt(f'{dirname}/transition_probability.csv', delimiter=',').tolist()#transition probability matrix
+    mu = np.loadtxt(f'{dirname}/mu_matrix.csv', delimiter=',')
+    K = np.loadtxt(f'{dirname}/K_values.csv', delimiter=',').astype(int).tolist()
     
     crosspb = float(sys.argv[9]) #Crossover rate
     mutpb = float(sys.argv[10]) #Mutation rate
@@ -332,11 +332,11 @@ if __name__ == '__main__':
     
     
     if rank == 0:
-        dirname = time.strftime(f"Optimization_{output_dir}_%Y%m%d%H%M%S")
-        os.makedirs(f'./{dirname}', exist_ok=True)
+        output_dir = time.strftime(f"Optimization_{dirname}_algorithm{'MVA' if algorithm == 1 else 'Simulation'}_Size{size:02}_%Y%m%d%H%M%S")
+        os.makedirs(f'./{output_dir}', exist_ok=True)
         
-        # ログファイル作成
-        log_path = os.path.join(dirname, "run_info.txt")
+        # Create log file / ログファイル作成
+        log_path = os.path.join(output_dir, "run_info.txt")
         with open(log_path, 'w') as f:
             f.write(f"Execution Time: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"N (Number of nodes): {N}\n")
@@ -352,18 +352,38 @@ if __name__ == '__main__':
                 f.write(f"Simulation time: {sim_time}\n")
             f.write(f"P (Cost weight): {P}\n")
             f.write(f"MPI  size: {size}\n")
-            f.write(f"Transition Probability file: {output_dir}/transition_probability.csv\n")
-            f.write(f"mu Matrix file: {output_dir}/mu_matrix.csv\n")
-            f.write(f"K Values file: {output_dir}/K_values.csv\n")
+            f.write(f"Transition Probability file: {dirname}/transition_probability.csv\n")
+            f.write(f"mu Matrix file: {dirname}/mu_matrix.csv\n")
+            f.write(f"K Values file: {dirname}/K_values.csv\n")
+            
+        
+        # List of filenames to be copied / コピー対象のファイル名一覧
+        files_to_copy = [
+            "node_info.csv",
+            "distance.csv",
+            "distance_matrix.csv",
+            "transition_probability.csv",
+            "popularity.csv",
+            "position.csv",
+            "m_values.csv",
+            "mu_matrix.csv",
+            "K_values.csv"
+        ]
+        # 各ファイルをコピー
+        for filename in files_to_copy:
+            src_path = os.path.join(dirname, filename)
+            dst_path = os.path.join(output_dir, filename)
+            shutil.copy(src_path, dst_path)
+        
     else:
-        dirname = None  # rank != 0 は最初は None
+        output_dir = None  # rank != 0 は最初は None
 
-    # Broadcast dirname from rank 0 to all ranks
-    dirname = comm.bcast(dirname, root=0)
+    # Broadcast output_dir from rank 0 to all ranks
+    output_dir = comm.bcast(output_dir, root=0)
                 
                 
     start = time.time()
-    bcmp = BCMP_GA_Class(N, R, npop, ngen, U, crosspb, mutpb, rank, size, comm, P, sim_time, p, algorithm,mu, K, dirname)
+    bcmp = BCMP_GA_Class(N, R, npop, ngen, U, crosspb, mutpb, rank, size, comm, P, sim_time, p, algorithm,mu, K, output_dir)
     best, score = bcmp.genetic_algorithm()
     if rank == 0:
         print('Done!')
@@ -375,5 +395,5 @@ if __name__ == '__main__':
         elapsed_time = time.time() - start
         print ("calclation_time:{0}".format(elapsed_time) + "[sec]")
     
-    #mpiexec -n 8 python BCMP_Optimization.py 10 2 50 1 500 500 8 20 0.5 0.2 1 1
-    #mpiexec -n 8 python BCMP_Optimization.py 10 2 50 1 500 500 8 20 0.5 0.2 1 2 10000
+    #mpiexec -n 8 python BCMP_Optimization.py 10 2 50 3 500 500 8 20 0.5 0.2 1 1
+    #mpiexec -n 8 python BCMP_Optimization.py 10 2 50 3 500 500 8 20 0.5 0.2 1 2 10000
