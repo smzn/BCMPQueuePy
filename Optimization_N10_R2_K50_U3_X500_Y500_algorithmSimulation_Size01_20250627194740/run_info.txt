@@ -1,0 +1,16 @@
+Execution Time: 2025-06-27 19:47:40
+N (Number of nodes): 10
+R (Number of classes): 2
+K_total (Total people): 50
+U (Max windows): 3
+Population size (npop): 8
+Generation size (ngen): 20
+Crossover probability: 0.5
+Mutation probability: 0.2
+Algorithm: 2 (Simulation)
+Simulation time: 1000
+P (Cost weight): 1.0
+MPI  size: 1
+Transition Probability file: N10_R2_K50_U3_X500_Y500/transition_probability.csv
+mu Matrix file: N10_R2_K50_U3_X500_Y500/mu_matrix.csv
+K Values file: N10_R2_K50_U3_X500_Y500/K_values.csv
