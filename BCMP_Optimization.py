@@ -1,11 +1,9 @@
 import math
-import pandas as pd
 import matplotlib.pyplot as plt
 import time
 import sys
 import numpy as np
-from numpy.random import randint
-from numpy.random import rand
+from numpy.random import randint, rand
 import random
 import os
 from mpi4py import MPI
@@ -13,13 +11,12 @@ from mpi4py import MPI
 
 class BCMP_GA_Class:
 
-    def __init__(self, N, R, K_total, npop, ngen, U, crosspb, mutpb, rank, size, comm, P, sim_time, tp, algorithm):
+    def __init__(self, N, R, npop, ngen, U, crosspb, mutpb, rank, size, comm, P, sim_time, tp, algorithm,mu, K, dirname):
+        self.dirname = dirname
         self.N = N
         self.R = R
-        self.K_total = K_total
-        self.K = [(K_total + i) // R for i in range(R)] #Number of people in network (K = [K1, K2])
-        self.mu = np.full((R, N), 1) #Service rate
-        self.type_list = np.full(N, 1) #Service type is FCFS (Type1(FCFS),Type2(Processor Sharing: PS),Type3(Infinite Server: IS),Type4(LCFS-PR))
+        self.K = K
+        self.mu = mu
         self.P = P
         self.sim_time = sim_time #simulation time
         self.npop = npop #Population size
@@ -30,53 +27,48 @@ class BCMP_GA_Class:
         self.rank = rank
         self.size = size
         self.comm = comm
-        self.scores = [0 for i in range(self.npop)] #各遺伝子のスコア
-        self.bestfit_seriese = []#最適遺伝子適合度を入れたリスト
-        self.mean_bestfit_seriese = [] #遺伝子全体平均の適合度
-        self.algorithm = algorithm #1(MVA), 2(Simulaion)
-        self.switch = 2
-        #初期遺伝子をブロードキャスト
-        prate = 0.2 #人気度の割合
-        dim = 2 #拠点間距離の次元数
+        self.scores = [0 for i in range(self.npop)] # Score for each gene#各遺伝子のスコア
+        self.bestfit_seriese = [] # List to store best gene fitness over generations#最適遺伝子適合度を入れたリスト
+        self.mean_bestfit_seriese = [] # List to store average fitness of all genes#遺伝子全体平均の適合度
+        self.algorithm = algorithm # 1 for MVA, 2 for Simulation
+        self.switch = 2 # Used when algorithm is 2 (Simulation)
+        # Broadcast initial genes #初期遺伝子をブロードキャスト
+        prate = 0.2 # Popularity rate #人気度の割合
+        dim = 2 # Dimensionality of distance between bases #拠点間距離の次元数
         if self.rank == 0:
-            self.pool = [[self.getRandInt1() for i in range(self.N)] for j in range(self.npop)] #遺伝子を初期化
-            if type(tp) is list:
-                self.p = tp
-            else:
-                self.popularity = self.getPopurarity(self.N, self.R, prate) #人気度を設定
-                self.distance_matrix = self.getDistance(self.N, dim) #拠点間距離
-                self.p = self.getGravity(self.distance_matrix) #推移確率
-                np.savetxt('./popularity_std_'+str(self.N)+'_'+str(self.R)+'_'+str(self.K_total)+'_'+str(self.npop)+'_'+str(self.ngen)+'.csv', np.array(self.popularity), delimiter=',', fmt='%d')
-                np.savetxt('./distance_std_'+str(self.N)+'_'+str(self.R)+'_'+str(self.K_total)+'_'+str(self.npop)+'_'+str(self.ngen)+'.csv', self.distance_matrix, delimiter=',', fmt='%.5f')
-                np.savetxt('./P_std_'+str(self.N)+'_'+str(self.R)+'_'+str(self.K_total)+'_'+str(self.npop)+'_'+str(self.ngen)+'.csv', self.p, delimiter=',')
+            self.pool = [[self.getRandInt1() for i in range(self.N)] for j in range(self.npop)]  # Initialize genes / 遺伝子を初期化
+            self.p = tp
             if self.algorithm == 2:
-                #シミュレーションの初期設定
-                self.event = [[] for i in range(self.N)] #各拠点で発生したイベント(arrival, departure)を格納
-                self.eventclass = [[] for i in range(self.N)] #各拠点でイベント発生時の客クラス番号
-                self.eventqueue = [[] for i in range(self.N)] #各拠点でイベント発生時のqueueの長さ
-                self.eventtime = [[] for i in range(self.N)] #各拠点でイベントが発生した時の時刻
-                self.queue = np.zeros(self.N) #各拠点のサービス中を含むqueueの長さ(クラスをまとめたもの)
-                self.queueclass = np.zeros((self.N, self.R)) #各拠点のサービス中を含むqueueの長さ(クラス別)
-                self.classorder = [[] for i in range(self.N)] #拠点に並んでいる順のクラス番号
-                self.window = np.full((self.N, self.U), self.R) #サービス中の客クラス(serviceに対応)(self.Rは空状態)
-                self.service = np.zeros((self.N, self.U)) #サービス中の客の残りサービス時間
-                #開始時の客の分配 (開始時のノードは拠点番号0)
+                # Initial setup for simulation / シミュレーションの初期設定
+                self.event = [[] for i in range(self.N)]  # Events (arrival, departure) at each base / 各拠点で発生したイベント(arrival, departure)を格納
+                self.eventclass = [[] for i in range(self.N)]  # Customer class at each event / 各拠点でイベント発生時の客クラス番号
+                self.eventqueue = [[] for i in range(self.N)]  # Queue length at each event / 各拠点でイベント発生時のqueueの長さ
+                self.eventtime = [[] for i in range(self.N)]  # Time of each event / 各拠点でイベントが発生した時の時刻
+                self.queue = np.zeros(self.N)  # Total queue length including service / 各拠点のサービス中を含むqueueの長さ(クラスをまとめたもの)
+                self.queueclass = np.zeros((self.N, self.R))  # Queue length per class / 各拠点のサービス中を含むqueueの長さ(クラス別)
+                self.classorder = [[] for i in range(self.N)]  # Order of customer classes in queue / 拠点に並んでいる順のクラス番号
+                self.window = np.full((self.N, self.U), self.R)  # Service windows with customer class / サービス中の客クラス(serviceに対応)(self.Rは空状態)
+                self.service = np.zeros((self.N, self.U))  # Remaining service time / サービス中の客の残りサービス時間
+
+                # Distribute initial customers (initial node is base 0) / 開始時の客の分配 (開始時のノードは拠点番号0)
                 elapse = 0
-                initial_node = 0 #Step1でのみ使用
+                initial_node = 0  # Used only in Step 1 / Step1でのみ使用
+
                 for i in range(self.R):
                     for _ in range(self.K[i]):
-                        initial_node = random.randrange(self.N)#20220320 最初はランダムにいる拠点を決定
-                        self.event[initial_node].append("arrival") #イベントを登録
-                        self.eventclass[initial_node].append(i) #到着客のクラス番号
-                        self.eventqueue[initial_node].append(self.queue[initial_node])#イベントが発生した時のqueueの長さ(到着客は含まない)
-                        self.eventtime[initial_node].append(elapse) #(移動時間0)
-                        self.queue[initial_node] += 1 #最初はノード0にn人いるとする
-                        self.queueclass[initial_node][i] += 1 #拠点0にクラス別人数を追加
-                        self.classorder[initial_node].append(i) #拠点0にクラス番号を追加
-                        #空いている窓口に客クラスとサービス時間を登録
+                        initial_node = random.randrange(self.N)  # Randomly choose base for each customer / 最初はランダムにいる拠点を決定
+                        self.event[initial_node].append("arrival")  # Register event / イベントを登録
+                        self.eventclass[initial_node].append(i)  # Customer class number / 到着客のクラス番号
+                        self.eventqueue[initial_node].append(self.queue[initial_node])  # Queue length at arrival / イベントが発生した時のqueueの長さ(到着客は含まない)
+                        self.eventtime[initial_node].append(elapse)  # Event time (0 for start) / (移動時間0)
+                        self.queue[initial_node] += 1  # Increment total queue at node / 最初はノード0にn人いるとする
+                        self.queueclass[initial_node][i] += 1  # Increment class-specific count / 拠点0にクラス別人数を追加
+                        self.classorder[initial_node].append(i)  # Add class to queue order / 拠点0にクラス番号を追加
+
+                        # Assign customer to available service window / 空いている窓口に客クラスとサービス時間を登録
                         if self.queue[initial_node] <= self.U:
-                            self.window[initial_node][int(self.queue[initial_node] - 1)] = i #クラス番号
-                            self.service[initial_node][int(self.queue[initial_node] - 1)] = self.getExponential(self.mu[i][initial_node]) #窓口客のサービス時間設定
+                            self.window[initial_node][int(self.queue[initial_node] - 1)] = i  # Set class in window / クラス番号
+                            self.service[initial_node][int(self.queue[initial_node] - 1)] = self.getExponential(self.mu[i][initial_node])  # Set service time / 窓口客のサービス時間設定
 
         else:
             self.pool = [[]]
@@ -123,7 +115,6 @@ class BCMP_GA_Class:
             if self.rank == 0:
                 for i in range(1, self.size):
                     scores = self.comm.recv(source=i, tag=11)
-                    #リストの結合
                     for j in range(len(self.scores)):
                         self.scores[j] += scores[j]
             else:
@@ -154,7 +145,7 @@ class BCMP_GA_Class:
                         children.append(c)
                 #replace population
                 self.pool = children
-                #世代毎の目的関数値を保存
+                # Save objective function values for each generation / 世代毎の目的関数値を保存
                 self.bestfit_seriese.append(best_eval)
                 self.mean_bestfit_seriese.append(sum(self.scores)/len(self.scores))
             #broadcast
@@ -171,8 +162,8 @@ class BCMP_GA_Class:
     def getFinalResult(self, individual):
         if self.algorithm == 1: #MVA
             import BCMP_MVA as mdl
-            bcmp_mva = mdl.BCMP_MVA(self.N, self.R, self.K, self.mu, self.type_list, self.p, individual)
-            theoretical = bcmp_mva.getMVA()
+            bcmp_mva = mdl.BCMP_MVA(self.N, self.R, self.K, self.mu, self.p, individual)
+            theoretical = bcmp_mva.get_MVA()
             L_class = np.array(theoretical) #list to numpy
         if self.algorithm == 2: #Simulation
             #Modify arrays (service, window)
@@ -184,13 +175,13 @@ class BCMP_GA_Class:
                     window[i][j] = self.window[i][j]
             #simulate
             import BCMP_Simulation as mdl
-            bcmp_simulation = mdl.BCMP_Simulation(self.N, self.R, self.K, self.U, self.mu, individual, self.type_list, self.p, self.sim_time, self.switch, self.event, self.eventclass, self.eventqueue, self.eventtime, self.queue, self.queueclass, self.classorder, window, service)
+            bcmp_simulation = mdl.BCMP_Simulation(self.N, self.R, self.K, self.U, self.mu, individual, self.p, self.sim_time, self.switch, self.event, self.eventclass, self.eventqueue, self.eventtime, self.queue, self.queueclass, self.classorder, window, service)
             simulation = bcmp_simulation.getSimulation()
             L_class = np.array(simulation) #list to numpy
-        np.savetxt('./ga_L_std_'+str(self.N)+'_'+str(self.R)+'_'+str(self.K_total)+'_'+str(self.npop)+'_'+str(self.ngen)+'_'+str(self.U)+'.csv', L_class, delimiter=',')
-        np.savetxt('./ga_Node_std_'+str(self.N)+'_'+str(self.R)+'_'+str(self.K_total)+'_'+str(self.npop)+'_'+str(self.ngen)+'_'+str(self.U)+'.csv', individual, delimiter=',') #窓口数
-        np.savetxt('./ga_P_std_'+str(self.N)+'_'+str(self.R)+'_'+str(self.K_total)+'_'+str(self.npop)+'_'+str(self.ngen)+'_'+str(self.U)+'.csv', self.p, delimiter=',')
-        np.savetxt('./ga_Object_std_'+str(self.N)+'_'+str(self.R)+'_'+str(self.K_total)+'_'+str(self.npop)+'_'+str(self.ngen)+'_'+str(self.U)+'.csv', np.array(self.bestfit_seriese), delimiter=',')
+        np.savetxt(f'{self.dirname}/ga_L_std.csv', L_class, delimiter=',')
+        np.savetxt(f'{self.dirname}/ga_Node_std.csv', individual, delimiter=',') 
+        np.savetxt(f'{self.dirname}/ga_P_std.csv', self.p, delimiter=',')
+        np.savetxt(f'{self.dirname}/ga_Object_std.csv', np.array(self.bestfit_seriese), delimiter=',')
         print('Final Result')
         print('L = {0}'.format(L_class))
         print('sum = {0}'.format(np.sum(L_class)))
@@ -199,8 +190,8 @@ class BCMP_GA_Class:
     def getOptimizeBCMP(self, individual):
         if self.algorithm == 1: #MVA
             import BCMP_MVA as mdl
-            bcmp_mva = mdl.BCMP_MVA(self.N, self.R, self.K, self.mu, self.type_list, self.p, individual)
-            theoretical = bcmp_mva.getMVA()
+            bcmp_mva = mdl.BCMP_MVA(self.N, self.R, self.K, self.mu, self.p, individual)
+            theoretical = bcmp_mva.get_MVA()
             L_class = np.array(theoretical) #list to numpy
         if self.algorithm == 2: #Simulation
             #Modify arrays (service, window)
@@ -212,45 +203,26 @@ class BCMP_GA_Class:
                     window[i][j] = self.window[i][j]
             #simulate
             import BCMP_Simulation as mdl
-            bcmp_simulation = mdl.BCMP_Simulation(self.N, self.R, self.K, self.U, self.mu, individual, self.type_list, self.p, self.sim_time, self.switch, self.event, self.eventclass, self.eventqueue, self.eventtime, self.queue, self.queueclass, self.classorder, window, service)
+            bcmp_simulation = mdl.BCMP_Simulation(self.N, self.R, self.K, self.U, self.mu, individual, self.p, self.sim_time, self.switch, self.event, self.eventclass, self.eventqueue, self.eventtime, self.queue, self.queueclass, self.classorder, window, service)
             simulation = bcmp_simulation.getSimulation()
             L_class = np.array(simulation) #list to numpy
         L = []
         for i in range(len(L_class)):
-            sum = 0
+            total = 0
             for j in range(len(L_class[i])):
-                sum += L_class[i,j]
-            L.append(sum)
+                total += L_class[i,j]
+            L.append(total)
         return self.getObjective(L, individual)
-
-   #Create transition probability matrix with gravity model
-    def getGravity(self, distance):
-        C = 0.1475
-        alpha = 1.0
-        beta = 1.0
-        eta = 0.5
-        class_number = len(self.popularity[0]) #Number of classes
-        tp = np.zeros((len(distance) * class_number, len(distance) * class_number))
-        for r in range(class_number):
-            for i in range(len(distance) * r, len(distance) * (r+1)):
-                for j in range(len(distance) * r, len(distance) * (r+1)):
-                    if distance[i % len(distance)][j % len(distance)] > 0:
-                        tp[i][j] = C * (self.popularity[i % len(distance)][r]**alpha) * (self.popularity[j % len(distance)][r]**beta) / (int(distance[i % len(distance)][j % len(distance)])**eta)
-        row_sum = np.sum(tp, axis=1)
-        for i in range(len(tp)): #Sum of rows to 1
-            if row_sum[i] > 0:
-                tp[i] /= row_sum[i]
-        return tp
 
     #Objective Function
     def getObjective(self, l, individual):
         l = np.array(l)
         l1 = l.reshape(1,-1)
         val = np.std(l1)
-        sum = 0
+        total = 0
         for i in range(self.N):
-            sum += self.P * (individual[i] - 1)
-        return val + sum
+            total += self.P * (individual[i] - 1)
+        return val + total
 
     # tournament selection
     def selection(self, k=3):
@@ -283,7 +255,13 @@ class BCMP_GA_Class:
                 # flip the bit
                 bit = randint(1, self.U+1)
                 if bitstring[i] == bit:
-                    if (bitstring[i]-1) / (self.U-1) > rand():
+                    if self.U == 1:
+                        # If there is only one possible value to mutate to, just set it (or do nothing)
+                        # 変更できる候補が1つしかない場合はそのまま変える（または何もしない）
+                        # When self.U == 1, the only valid value is 1
+                        # self.U == 1 なので範囲は 1 のみ2025/06/27
+                        bitstring[i] = 1  
+                    elif (bitstring[i]-1) / (self.U-1) > rand():
                         bitstring[i] = randint(1, bitstring[i])
                     else:
                         bitstring[i] = randint(bitstring[i]+1, self.U+1)
@@ -302,12 +280,13 @@ class BCMP_GA_Class:
         plt.ylabel('Value of GA')
         plt.grid()
         plt.legend()
-        fig.savefig('./ga_transition_std_'+str(self.N)+'_'+str(self.R)+'_'+str(self.K_total)+'_'+str(self.npop)+'_'+str(self.ngen)+'_'+str(self.U)+'.png')
+        fig.savefig(f'{self.dirname}/ga_transition_std.png')
         
-    def getRandInt1(self): #1を返すときに最低利用Number of nodesでの1の返しやすさを反映
+    def getRandInt1(self): # Reflect the ease of returning 1 with the minimum number of used nodes / 1を返すときに最低利用Numbe
         return randint(1, self.U+1)
         
-    # 重複なしランダム生成 #https://magazine.techacademy.jp/magazine/21160
+    # Generate random values without duplicates / 重複なしランダム生成
+    #https://magazine.techacademy.jp/magazine/21160
     def rand_ints_nodup(self, a, b, k):
         ns = []
         while len(ns) < k:
@@ -315,48 +294,7 @@ class BCMP_GA_Class:
             if not n in ns:
                 ns.append(n)
         return ns
-        
-    #人気度ランダム作成関数
-    def getPopurarity(self, N, R, prate):
-        #Popularity Array
-        ranking = [[0 for i in range(R)] for j in range(N)]
-        
-        #histgram
-        histdata = [[],[]] ##
-        
-        #standard deviation
-        scale = 2
-        
-        #Popular nodes
-        for r in range(R):
-            pnindex = self.rand_ints_nodup(0, N-1, int(N*prate))
-            for n in range(N):
-                if n in pnindex:
-                    rnd_val = np.random.normal(15, scale) #Normal distribution with mean 15 and standard deviation 1
-                    histdata[1].append(rnd_val)
-                    ranking[n][r] = round(rnd_val)
-                else:
-                    rnd_val = np.random.normal(5, scale) #Normal distribution with mean 5 and standard deviation 1
-                    histdata[0].append(rnd_val)
-                    ranking[n][r] = round(rnd_val)
-                
-                if ranking[n][r] < 1:
-                    ranking[n][r] = 1
-        
-        return ranking
-        
-    def getDistance(self, N, dim):
-        #Generate location information
-        position = np.random.randint(0, 500, (N, dim)) #0~500
-        np.savetxt('./position_std_'+str(self.N)+'_'+str(self.R)+'_'+str(self.K_total)+'_'+str(self.npop)+'_'+str(self.ngen)+'_'+str(self.U)+'.csv', position, delimiter=',', fmt='%d')
-        
-        #Generate distance
-        distance = [[-1 for i in range(N)] for j in range(N)] 
-        for i in range(N):
-            for j in range(N):
-                distance[i][j] = np.linalg.norm(position[j]-position[i])
-        
-        return distance
+      
 
     def getExponential(self, param): #Set service time
         return - math.log(1 - random.random()) / param
@@ -369,38 +307,73 @@ if __name__ == '__main__':
     rank = comm.Get_rank()
     size = comm.Get_size()
 
-    algorithm = 2 #1(MVA), 2(Simulaion)
-    sim_time = 1000 #Simulation time
+    N = int(sys.argv[1])#Number of nodes in the network
+    R = int(sys.argv[2])#Number of classes
+    K_total = int(sys.argv[3])#Total number of people in the network
+    U = int(sys.argv[4]) #Maximum number of windows
 
-    N = int(sys.argv[1]) #Number of nodes
-    R = int(sys.argv[2]) #Number of classes
-    K_total = int(sys.argv[3]) #Total number of people
-    npop = int(sys.argv[4]) #Population size
-    ngen = int(sys.argv[5]) #Generation size
-    U = int(sys.argv[6]) #Maximum number of windows
-    #Set transition probability
-    tp_file = 'transition_probability_N33_R2_K500_U2_Core8.csv'
-    tp_bool =  os.path.isfile(tp_file)
-    if tp_bool == True:
-        tp = pd.read_csv(tp_file, index_col=0, header=0).values.tolist()
+    max_x = int(sys.argv[5]) 
+    max_y = int(sys.argv[6])
+    
+    npop = int(sys.argv[7]) #Population size
+    ngen = int(sys.argv[8]) #Generation size
+
+    output_dir = f'N{N}_R{R}_K{K_total}_U{U}_X{max_x}_Y{max_y}'
+    p = np.loadtxt(f'{output_dir}/transition_probability.csv', delimiter=',').tolist()#transition probability matrix
+    mu = np.loadtxt(f'{output_dir}/mu_matrix.csv', delimiter=',')
+    K = np.loadtxt(f'{output_dir}/K_values.csv', delimiter=',').astype(int).tolist()
+    
+    crosspb = float(sys.argv[9]) #Crossover rate
+    mutpb = float(sys.argv[10]) #Mutation rate
+    P = float(sys.argv[11]) #Cost weight
+    
+    algorithm = int(sys.argv[12]) #1(MVA), 2(Simulaion)
+    sim_time = int(sys.argv[13]) if len(sys.argv) > 13 else 0 #Simulation time
+    
+    
+    if rank == 0:
+        dirname = time.strftime(f"Optimization_{output_dir}_%Y%m%d%H%M%S")
+        os.makedirs(f'./{dirname}', exist_ok=True)
+        
+        # ログファイル作成
+        log_path = os.path.join(dirname, "run_info.txt")
+        with open(log_path, 'w') as f:
+            f.write(f"Execution Time: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"N (Number of nodes): {N}\n")
+            f.write(f"R (Number of classes): {R}\n")
+            f.write(f"K_total (Total people): {K_total}\n")
+            f.write(f"U (Max windows): {U}\n")
+            f.write(f"Population size (npop): {npop}\n")
+            f.write(f"Generation size (ngen): {ngen}\n")
+            f.write(f"Crossover probability: {crosspb}\n")
+            f.write(f"Mutation probability: {mutpb}\n")
+            f.write(f"Algorithm: {algorithm} ({'MVA' if algorithm == 1 else 'Simulation'})\n")
+            if algorithm == 2:
+                f.write(f"Simulation time: {sim_time}\n")
+            f.write(f"P (Cost weight): {P}\n")
+            f.write(f"MPI  size: {size}\n")
+            f.write(f"Transition Probability file: {output_dir}/transition_probability.csv\n")
+            f.write(f"mu Matrix file: {output_dir}/mu_matrix.csv\n")
+            f.write(f"K Values file: {output_dir}/K_values.csv\n")
     else:
-        tp = tp_bool
-    crosspb = 0.5 #Crossover rate
-    mutpb = 0.2 #Mutation rate
-    P = 1 #Cost weight
+        dirname = None  # rank != 0 は最初は None
 
+    # Broadcast dirname from rank 0 to all ranks
+    dirname = comm.bcast(dirname, root=0)
+                
+                
     start = time.time()
-    bcmp = BCMP_GA_Class(N, R, K_total, npop, ngen, U, crosspb, mutpb, rank, size, comm, P, sim_time, tp, algorithm)
+    bcmp = BCMP_GA_Class(N, R, npop, ngen, U, crosspb, mutpb, rank, size, comm, P, sim_time, p, algorithm,mu, K, dirname)
     best, score = bcmp.genetic_algorithm()
     if rank == 0:
         print('Done!')
         print('f(%s) = %f' % (best, score))
-        sum = 0
+        total = 0
         for i in range(N):
-            sum += P * (best[i] - 1)
-        print('std = {0}   cost = {1}'.format(score - sum, sum))
+            total += P * (best[i] - 1)
+        print('std = {0}   cost = {1}'.format(score - total, total))
         elapsed_time = time.time() - start
         print ("calclation_time:{0}".format(elapsed_time) + "[sec]")
     
-
-    #mpiexec -n 8 python BCMP_Optimization.py 33 2 500 8 20 2
+    #mpiexec -n 8 python BCMP_Optimization.py 10 2 50 1 500 500 8 20 0.5 0.2 1 1
+    #mpiexec -n 8 python BCMP_Optimization.py 10 2 50 1 500 500 8 20 0.5 0.2 1 2 10000
