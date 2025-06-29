@@ -158,10 +158,8 @@ Generated directory includes:
 - `MVA_N5_R2_K10_X500_Y500/`
 
 ### Graphs
-- `RMSE.png`, `avg_RMSE_*.png` (simulation)
-- `ga_transition_std.png` (optimization progress)
-- `length_Rank_*.png` (system occupancy over time)
-
+- `heatmap_*.png`: Heatmap showing node positions and load distribution
+- `L_*.png`: Bar chart of average number of customers per node and class
 
 
 ## License
