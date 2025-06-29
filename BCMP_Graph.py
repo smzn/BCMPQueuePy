@@ -92,8 +92,12 @@ if __name__ == '__main__':
         if not mva_files:
             print(f"No file starting with '{target}' found in the directory.")
             continue
-        L = np.loadtxt(mva_files[0], delimiter=',')        
+        if target == 'avg_Lc':
+            L = pd.read_csv(mva_files[0], index_col=0).values
+        else:  
+            L = np.loadtxt(mva_files[0], delimiter=',')        
         bcmp = BCMP_Graph(p, m, L, node_info, dirname, target)
 
 
 #python BCMP_Graph.py N10_R2_K50_U3_X500_Y500 
+#python BCMP_Graph.py Optimization_N10_R2_K50_U3_X500_Y500_algorithmSimulation_Size01_20250627194740
