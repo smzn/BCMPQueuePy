@@ -152,10 +152,16 @@ Generated directory includes:
 
 ## 6. BCMP_Graph.py
 
-### Example Output Folders
-- `Simulation_N10_R2_K50_U3_X500_Y500_Size08_20250628153000/`
-- `Optimization_20250627143000/`
-- `MVA_N5_R2_K10_X500_Y500/`
+### Usage
+```bash
+python BCMP_Graph.py <folderpath>
+```
+
+### Example
+```bash
+python BCMP_Graph.py N10_R2_K50_U1_X500_Y500 
+```
+
 
 ### Graphs
 - `heatmap_*.png`: Heatmap showing node positions and load distribution
