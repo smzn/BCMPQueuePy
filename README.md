@@ -89,36 +89,7 @@ CSV file:
 
 
 
-## 4. BCMP_Simulation.py
-
-### Overview
-Performs discrete-event simulation of BCMP queueing networks with MPI-based parallelism. Calculates RMSE versus theoretical MVA results, and logs performance metrics.
-
-### Required Input Files
-- `transition_probability.csv`, `m_values.csv`, `mu_matrix.csv`, `K_values.csv`
-- `MVA_L_matrix_*.csv` for theoretical comparison
-
-### Usage
-Run using `mpiexec` with the desired number of processes:
-```bash
-mpiexec -n <num_processes> python BCMP_Simulation.py N R K_total U max_x max_y sim_time
-```
-
-### Example
-```bash
-mpiexec -n 8 python BCMP_MVA.py 10 2 50 1 3 500 500 10000
-```
-
-### Output
-Automatically generated directory with:
-- `L_Rank_*.csv`, `Q_Rank_*.csv`, `Lc_Rank_*.csv`, `Qc_Rank_*.csv`
-- `RMSE_Rank_*.csv`, `RMSE.png`, `avg_RMSE_*.png`
-- `length_Rank_*.png`, `model_info.csv`
-- Performance logs: `Time_Rank_*.csv`, `memory_Rank_*.csv`
-
-
-
-## 5. BCMP_Optimization.py
+## 4. BCMP_Optimization.py
 
 ### Overview
 Uses Genetic Algorithm (GA) to optimize server (window) allocation in a BCMP network. Objective: minimize the sum of the standard deviation of customer load (L) and deployment cost.
@@ -148,6 +119,34 @@ Generated directory includes:
 - `ga_L_std.csv`, `ga_Node_std.csv`, `ga_P_std.csv`
 - `ga_Object_std.csv`, `ga_transition_std.png`
 - `run_info.txt`
+
+
+## 5. BCMP_Simulation.py
+
+### Overview
+Performs discrete-event simulation of BCMP queueing networks with MPI-based parallelism. Calculates RMSE versus theoretical MVA results, and logs performance metrics.
+
+### Required Input Files
+- `transition_probability.csv`, `m_values.csv`, `mu_matrix.csv`, `K_values.csv`
+- `MVA_L_matrix_*.csv` for theoretical comparison
+
+### Usage
+Run using `mpiexec` with the desired number of processes:
+```bash
+mpiexec -n <num_processes> python BCMP_Simulation.py N R K_total U max_x max_y sim_time
+```
+
+### Example
+```bash
+mpiexec -n 8 python BCMP_MVA.py 10 2 50 1 3 500 500 10000
+```
+
+### Output
+Automatically generated directory with:
+- `L_Rank_*.csv`, `Q_Rank_*.csv`, `Lc_Rank_*.csv`, `Qc_Rank_*.csv`
+- `RMSE_Rank_*.csv`, `RMSE.png`, `avg_RMSE_*.png`
+- `length_Rank_*.png`, `model_info.csv`
+- Performance logs: `Time_Rank_*.csv`, `memory_Rank_*.csv`
 
 
 ## 6. BCMP_Graph.py
