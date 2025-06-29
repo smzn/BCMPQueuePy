@@ -165,7 +165,14 @@ Generated directory includes:
 
 
 ## License
-Specify license information here (e.g., MIT License).
+MIT License
+
+## Corresponding contributor
+Shinya Mizuno
+s.mzn.eng@gmail.com
+
+
+
 
 
 
