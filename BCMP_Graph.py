@@ -19,7 +19,8 @@ class BCMP_Graph:
         self.R = self.L.shape[1]                # クラス数（列数）
         self.K_total = sum(m)                   # 合計クラス数
         self.U = max(m) if len(m) > 0 else 0    # 特定ユーザークラス番号
-        self.popularity = np.ones((self.N, self.R))  # 仮の人気度（本来は渡す）
+        popularity_cols = [col for col in self.node_info.columns if col.startswith('popularity_')]
+        self.sum_popularity = self.node_info[popularity_cols].sum(axis=1).tolist()  # 人気度
         self.size = 1
         
         match = re.search(r'X(\d+)_Y(\d+)', dirname)
@@ -49,15 +50,16 @@ class BCMP_Graph:
 
         # ノードのプロット
         color = ["c", "g", "m", "b", "r", "w"]
-        sum_popularity = np.sum(self.popularity, axis=1)
 
         for ind, p in enumerate(self.position):
             if np.sum(self.L[ind]) != 0:
                 #ax.scatter(p[0], p[1], s=10, color='black')
                 label_number = ind + 1
                 label_text = f"{label_number}"
-                if sum_popularity[ind] >= 25:
-                    label_text += '*'
+                if self.sum_popularity[ind] >= 25:
+                    ax.scatter(p[0], p[1], s=30, color='red', marker='*')
+                else:
+                    ax.scatter(p[0], p[1], s=5, color='black')
 
                 ax.text(p[0], p[1], label_text,
                         fontsize=8, ha='center', va='center',
@@ -81,7 +83,6 @@ class BCMP_Graph:
         plt.savefig(f'{self.dirname}/L_{target}.png', dpi=300)
         plt.close()
 
-        # self.maxval = maxval ← 必要なら保存
 
 
 if __name__ == '__main__':
