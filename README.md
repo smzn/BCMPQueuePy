@@ -5,8 +5,8 @@ This README provides a unified guide to the following Python modules for simulat
 1. `BCMP_makeTransitionProbability.py` – Transition Probability Generation  
 2. `BCMP_MVA.py` – Mean Value Analysis (MVA)
 3. `BCMP_MVA_ParallelComputation.py` – Mean Value Analysis (MVA)
-4. `BCMP_Simulation.py` – Network Simulation  
-5. `BCMP_Optimization.py` – Server Allocation Optimization  
+4. `BCMP_Optimization.py` – Server Allocation Optimization  
+5. `BCMP_Simulation.py` – Network Simulation  
 6. `BCMP_Graph.py` - Output structure and visualizations (Graph section)  
 
 ---
