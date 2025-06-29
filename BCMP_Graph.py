@@ -4,6 +4,7 @@ import os
 import matplotlib.pyplot as plt
 import pandas as pd
 import sys
+import re
 
 class BCMP_Graph:
     def __init__(self, p, m, L, node_info, dirname, target):
@@ -20,11 +21,14 @@ class BCMP_Graph:
         self.U = max(m) if len(m) > 0 else 0    # 特定ユーザークラス番号
         self.popularity = np.ones((self.N, self.R))  # 仮の人気度（本来は渡す）
         self.size = 1
-
-        # max距離範囲：自動計算（座標の最大値 + マージン）
-        self.max_distance_x = int(max(pos[0] for pos in self.position)) + 5
-        self.max_distance_y = int(max(pos[1] for pos in self.position)) + 5
-
+        
+        match = re.search(r'X(\d+)_Y(\d+)', dirname)
+        if match:
+            self.max_distance_x = int(match.group(1))
+            self.max_distance_y = int(match.group(2))
+        else:
+            raise ValueError("X###_Y### pattern not found in dirname.")
+        
         # 1. Heatmap 作成
         heat_scores = [[0 for _ in range(self.max_distance_x)] for _ in range(self.max_distance_y)]
         for r in range(self.R):
