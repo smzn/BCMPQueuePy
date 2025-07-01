@@ -1,0 +1,13 @@
+Execution Time: 2025-07-01 13:22:09
+N (Number of nodes): 10
+R (Number of classes): 2
+K_total (Total people): 50
+U (Max windows): 3
+Purpose of simulation: 1 (MVA)
+Simulation time: 1000
+MPI  size: 8
+Transition Probability file: ../results/N10_R2_K50_U3_X500_Y500/transition_probability.csv
+m Matrix file: ../results/N10_R2_K50_U3_X500_Y500/m_matrix.csv
+mu Matrix file: ../results/N10_R2_K50_U3_X500_Y500/mu_matrix.csv
+K Values file: ../results/N10_R2_K50_U3_X500_Y500/K_values.csv
+Theoretical Values file: ../results/N10_R2_K50_U3_X500_Y500/../results/N10_R2_K50_U3_X500_Y500/MVA_L_matrix_Core1.csv
